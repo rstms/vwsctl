@@ -1,0 +1,6 @@
+vwsctl
+notes
+cruft
+*.core
+*.log
+*postactivate
