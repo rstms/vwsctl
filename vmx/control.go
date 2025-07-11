@@ -1,8 +1,17 @@
 package vmx
 
+import (
+	"fmt"
+	"github.com/spf13/viper"
+	"log"
+	"os"
+	"runtime"
+	"strings"
+)
+
 type VM struct {
 	Name string
-	ID   string
+	Id   string
 
 	Running   bool
 	IpAddress string
@@ -58,47 +67,156 @@ type StopOptions struct {
 }
 
 type Controller interface {
-	List(string, bool) ([]VM, error)
+	List(string, bool, bool) ([]VM, error)
 	Create(string, CreateOptions) (VM, error)
-	Destroy(string, bool) error
+	Destroy(string, DestroyOptions) error
 	Start(string, StartOptions) error
 	Stop(string, StopOptions) error
 	Get(string, string) (any, error)
 	Set(string, string, any) error
-	ReadConfig(string) ([]bytes, error)
-	WriteConfig(string, []bytes) error
+	Close() error
 }
 
-type ControllerOptions struct {
-	Remote   bool
+type vmctl struct {
 	Hostname string
 	Username string
 	KeyFile  string
 	Path     string
+	api      *APIClient
+	relay    *Relay
+	Shell    string
+	Local    string
+	Remote   string
 }
 
-type vmctl struct {
-	cxn ControllerOptions
+func isLocal() (bool, error) {
+	remote := viper.GetString("hostname")
+	if remote == "" || remote == "localhost" || remote == "127.0.0.1" {
+		return true, nil
+	}
+	host, err := os.Hostname()
+	if err != nil {
+		return false, err
+	}
+	if host == remote {
+		return true, nil
+	}
+	return false, nil
 }
 
-func NewController(options ControllerOptions) Controller {
-	return &vmctl{cxn: options}
+func detectRemoteOS() (string, error) {
+	vars, _, err := Run("ssh", "windows", "env")
+	if err != nil {
+		return "", err
+	}
+	for _, line := range vars {
+		if strings.HasPrefix(line, "OS=Windows") {
+			return "windows", nil
+		}
+	}
+	olines, _, err := Run("ssh", "", "uname")
+	if err != nil {
+		return "", err
+	}
+	if len(olines) != 1 {
+		return "", fmt.Errorf("unexpected uname response: %v", olines)
+	}
+	return strings.ToLower(olines[0]), nil
 }
 
-func (v *vmctl) List(name string, running bool) ([]VM, error) {
+func NewController() (Controller, error) {
+
+	_, keyfile, err := GetViperPath("key")
+	if err != nil {
+		return nil, err
+	}
+
+	v := vmctl{
+		Hostname: viper.GetString("hostname"),
+		Username: viper.GetString("username"),
+		KeyFile:  keyfile,
+		Path:     viper.GetString("path"),
+	}
+
+	relayConfig := viper.GetString("relay")
+	if relayConfig != "" {
+		r, err := NewRelay(relayConfig)
+		if err != nil {
+			return nil, err
+		}
+		v.relay = r
+	}
+
+	client, err := newVMRestClient()
+	if err != nil {
+		return nil, err
+	}
+	v.api = client
+
+	v.Local = runtime.GOOS
+	local, err := isLocal()
+	if err != nil {
+		return nil, err
+	}
+	if local {
+		v.Remote = v.Local
+		switch v.Local {
+		case "windows":
+			v.Shell = "cmd"
+		default:
+			v.Shell = "sh"
+		}
+	} else {
+		v.Shell = "ssh"
+		remote, err := detectRemoteOS()
+		if err != nil {
+			return nil, err
+		}
+		v.Remote = remote
+	}
+	return &v, nil
+}
+
+func (v *vmctl) Close() error {
+	if v.relay != nil {
+		return v.relay.Close()
+	}
+	return nil
+}
+
+func (v *vmctl) List(name string, detail, all bool) ([]VM, error) {
 	vms := []VM{}
-	log.Printf("List: %s %+v\n", name, running)
-	return vms, fmt.Errorf("Error: %s", "unimplemented")
+
+	olines, _, err := v.vmrun("list")
+	if err != nil {
+		return []VM{}, err
+	}
+	for i, line := range olines {
+		fmt.Printf("oline[%d] %s\n", i, line)
+	}
+	panic("howdy")
+	vmids, err := v.api.GetVMs()
+	if err != nil {
+		return vms, err
+	}
+	for _, vmid := range vmids {
+		vm, err := v.api.GetVM(vmid.Id)
+		if err != nil {
+			return vms, err
+		}
+		vms = append(vms, vm)
+	}
+	return vms, nil
 }
 
 func (v *vmctl) Create(name string, options CreateOptions) (VM, error) {
 	log.Printf("Create: %s %+v\n", name, options)
-	return nil, fmt.Errorf("Error: %s", "unimplemented")
+	return VM{}, fmt.Errorf("Error: %s", "unimplemented")
 }
 
 func (v *vmctl) Destroy(name string, options DestroyOptions) error {
 	log.Printf("Destroy: %s %+v\n", name, options)
-	return nil, fmt.Errorf("Error: %s", "unimplemented")
+	return fmt.Errorf("Error: %s", "unimplemented")
 }
 
 func (v *vmctl) Start(name string, options StartOptions) error {
@@ -113,7 +231,7 @@ func (v *vmctl) Stop(name string, options StopOptions) error {
 
 func (v *vmctl) Get(name, property string) (any, error) {
 	log.Printf("Get: %s %+v\n", name, property)
-	return fmt.Errorf("Error: %s", "unimplemented")
+	return nil, fmt.Errorf("Error: %s", "unimplemented")
 }
 
 func (v *vmctl) Set(name, property string, value any) error {
@@ -121,12 +239,6 @@ func (v *vmctl) Set(name, property string, value any) error {
 	return fmt.Errorf("Error: %s", "unimplemented")
 }
 
-func (v *vmctl) ReadConfig(name string) ([]byte, error) {
-	log.Printf("ReadConfig: %s\n", name)
-	return []byte{}, fmt.Errorf("Error: %s", "unimplemented")
-}
-
-func (v *vmctl) WriteConfig(name string, data []byte) error {
-	log.Printf("WriteConfig: %s (%d bytes)\n", name, len(data))
-	return fmt.Errorf("Error: %s", "unimplemented")
+func (v *vmctl) vmrun(command string) ([]string, []string, error) {
+	return Run(v.Shell, v.Remote, "vmrun "+command)
 }

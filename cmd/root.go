@@ -31,15 +31,19 @@ POSSIBILITY OF SUCH DAMAGE.
 package cmd
 
 import (
+	"fmt"
+	"log"
 	"os"
 
 	"github.com/rstms/vwsctl/vmx"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"os/user"
 )
 
 var cfgFile string
+var vmxctl vmx.Controller
 
-// rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Version: "0.0.3",
 	Use:     "vwsctl",
@@ -48,13 +52,22 @@ var rootCmd = &cobra.Command{
 Inspired by OpenBSD vmctl, this program aims to simplify control of VMWare
 Workstation instances.
 `,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		v, err := vmx.NewController()
+		cobra.CheckErr(err)
+		vmxctl = v
+		if viper.GetBool("verbose") {
+			log.Printf("Controller: %s\n", FormatJSON(vmxctl))
+		}
+	},
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		if vmxctl != nil {
+			err := vmxctl.Close()
+			cobra.CheckErr(err)
+		}
+	},
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
@@ -64,15 +77,27 @@ func Execute() {
 
 func init() {
 	cobra.OnInitialize(InitConfig)
-	OptionString("logfile", "l", "", "log filename")
+	hostname, err := os.Hostname()
+	cobra.CheckErr(err)
+	currentUser, err := user.Current()
+	cobra.CheckErr(err)
+	username := currentUser.Username
+	OptionString("logfile", "", "", "log filename")
 	OptionString("config", "c", "", "config file")
-	OptionSwitch("debug", "", "produce debug output")
-	OptionSwitch("verbose", "v", "increase verbosity")
+	OptionSwitch("debug", "d", "produce debug output")
+	OptionSwitch("verbose", "v", "produce diagnostic output")
+	OptionString("hostname", "H", hostname, "controller hostname")
+	OptionString("username", "U", username, "controller username")
+	OptionString("private-key", "i", "", "ssh private key file")
+	OptionString("api-username", "", username, "VMREST API Username")
+	OptionString("api-password", "", "", "VMREST API Password")
+	OptionString("port", "", fmt.Sprintf("%d", vmx.VMREST_PORT), "VMREST API Port")
+	OptionString("relay", "L", "", "ssh port forward VMREST port")
+	OptionString("url", "", "", "VMREST API URL")
+}
 
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
+func GetController() vmx.Controller {
+	vmctl, err := vmx.NewController()
+	cobra.CheckErr(err)
+	return vmctl
 }

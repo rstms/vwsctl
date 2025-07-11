@@ -1,6 +1,6 @@
 package vmx
 
-type DiskType int
+type VDiskType int
 
 const (
 	DiskTypeSingleFileGrowable = iota
@@ -12,7 +12,7 @@ const (
 	DiskTypeThin
 )
 
-var diskTypeName = map[DiskType]string{
+var diskTypeName = map[VDiskType]string{
 	DiskTypeSingleFileGrowable:     "single_file_growable",
 	DiskTypeMultiFileGrowable:      "multiple_file_growable",
 	DiskTypeSingleFilePreallocated: "sigle_file_preallocated",
@@ -22,6 +22,6 @@ var diskTypeName = map[DiskType]string{
 	DiskTypeThin:                   "thin_provisioned",
 }
 
-func (dt DiskType) String() string {
+func (dt VDiskType) String() string {
 	return diskTypeName[dt]
 }
