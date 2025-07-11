@@ -186,7 +186,9 @@ func (v *vmctl) Close() error {
 
 func (v *vmctl) List(name string, detail, all bool) ([]VM, error) {
 	vms := []VM{}
+        vmxFiles := make(map[string]bool)
 
+        if !all {
 	olines, _, err := v.vmrun("list")
 	if err != nil {
 		return []VM{}, err
